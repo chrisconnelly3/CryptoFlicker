@@ -16,3 +16,12 @@ export function formatPct(p: number): string {
   const sign = p >= 0 ? "+" : "";
   return sign + p.toFixed(2) + "%";
 }
+
+export function formatDate(utcSeconds: number): string {
+  const d = new Date(utcSeconds * 1000);
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
