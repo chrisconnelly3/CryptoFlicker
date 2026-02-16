@@ -87,20 +87,19 @@ export default function ScreenerPage() {
   /* ── Asset class filter ── */
   const [assetFilter, setAssetFilter] = useState<AssetFilter>("crypto");
 
-  /* ── Crypto filters ── */
+  /* ── Crypto-only filters ── */
   const [quoteAsset, setQuoteAsset] = useState("USDT");
+  const [excludeLeveraged, setExcludeLeveraged] = useState(true);
+
+  /* ── Universal filters ── */
+  const [sortBy, setSortBy] = useState<SortField>("quoteVolume");
   const [minVolumeRaw, setMinVolumeRaw] = useState("");
   const [minChangePctRaw, setMinChangePctRaw] = useState("");
-  const [excludeLeveraged, setExcludeLeveraged] = useState(true);
-  const [sortBy, setSortBy] = useState<SortField>("quoteVolume");
 
   const minVolume = useDebounced(minVolumeRaw, 400);
   const minChangePct = useDebounced(minChangePctRaw, 400);
-
-  /* ── Universal filter: minimum average daily volume ── */
-  const [minAvgVolRaw, setMinAvgVolRaw] = useState("");
-  const minAvgVol = useDebounced(minAvgVolRaw, 400);
-  const minAvgVolNum = minAvgVol ? parseFloat(minAvgVol) : 0;
+  const minVolNum = minVolume ? parseFloat(minVolume) : 0;
+  const minChangePctNum = minChangePct ? parseFloat(minChangePct) : 0;
 
   /* ── Timeframe ── */
   const [interval, setInterval_] = useState("1d");
@@ -152,6 +151,13 @@ export default function ScreenerPage() {
   /* ── Prefetch depth (hardcoded) ── */
   const prefetchDepth = 5;
 
+  /* ── Background filter scan state ── */
+  const [filterScanProgress, setFilterScanProgress] = useState<{
+    scanned: number;
+    total: number;
+  } | null>(null);
+  const filterScanAbortRef = useRef<AbortController | null>(null);
+
   /* ── Refs ── */
   const candleCacheRef = useRef(new Map<string, CandleData[]>());
   const abortRef = useRef<AbortController | null>(null);
@@ -172,9 +178,8 @@ export default function ScreenerPage() {
     setAssetFilter(restoredAc);
     assetFilterRef.current = restoredAc;
     setQuoteAsset(p.get("q") ?? s.quoteAsset ?? "USDT");
-    setMinVolumeRaw(p.get("minVol") ?? s.minVolumeRaw ?? "");
+    setMinVolumeRaw(p.get("minVol") ?? s.minVolumeRaw ?? s.minAvgVolRaw ?? "");
     setMinChangePctRaw(p.get("minPct") ?? s.minChangePctRaw ?? "");
-    setMinAvgVolRaw(p.get("minAvgVol") ?? s.minAvgVolRaw ?? "");
     setSortBy((p.get("sort") ?? s.sortBy ?? "quoteVolume") as SortField);
     setExcludeLeveraged(
       p.has("exlev") ? p.get("exlev") !== "0" : s.excludeLeveraged !== "false",
@@ -210,7 +215,6 @@ export default function ScreenerPage() {
     if (quoteAsset !== "USDT") params.set("q", quoteAsset);
     if (minVolumeRaw) params.set("minVol", minVolumeRaw);
     if (minChangePctRaw) params.set("minPct", minChangePctRaw);
-    if (minAvgVolRaw) params.set("minAvgVol", minAvgVolRaw);
     if (sortBy !== "quoteVolume") params.set("sort", sortBy);
     if (!excludeLeveraged) params.set("exlev", "0");
     if (view !== "all") params.set("view", view);
@@ -227,7 +231,6 @@ export default function ScreenerPage() {
       quoteAsset,
       minVolumeRaw,
       minChangePctRaw,
-      minAvgVolRaw,
       sortBy,
       excludeLeveraged: String(excludeLeveraged),
       view,
@@ -240,7 +243,6 @@ export default function ScreenerPage() {
     quoteAsset,
     minVolumeRaw,
     minChangePctRaw,
-    minAvgVolRaw,
     sortBy,
     excludeLeveraged,
     view,
@@ -277,32 +279,62 @@ export default function ScreenerPage() {
     return [...cryptoInstruments, ...equityInstruments];
   }, [assetFilter, cryptoInstruments, equityInstruments]);
 
-  /* ── Track instruments known to be below min avg volume ── */
-  const [belowVolSet, setBelowVolSet] = useState<Set<string>>(new Set());
+  /* ── Track instruments that fail universal filters (vol / %chg) ── */
+  const [filteredOutSet, setFilteredOutSet] = useState<Set<string>>(new Set());
+  const filteredOutRef = useRef<Set<string>>(filteredOutSet);
+  useEffect(() => {
+    filteredOutRef.current = filteredOutSet;
+  }, [filteredOutSet]);
 
   const activeList = useMemo(() => {
     let list = allInstruments;
     if (view === "favorites") {
       list = list.filter((inst) => favorites.has(instrumentKey(inst)));
     }
-    // Filter out instruments known to be below min avg volume threshold
-    if (belowVolSet.size > 0) {
-      list = list.filter((inst) => !belowVolSet.has(instrumentKey(inst)));
+    // Filter out instruments that failed universal filters after candle load
+    if (filteredOutSet.size > 0) {
+      list = list.filter((inst) => !filteredOutSet.has(instrumentKey(inst)));
     }
     return list;
-  }, [allInstruments, view, favorites, belowVolSet]);
+  }, [allInstruments, view, favorites, filteredOutSet]);
 
   const currentInstrument = activeList[currentIndex] ?? null;
   const isSkipped = currentInstrument
     ? skipped.has(instrumentKey(currentInstrument))
     : false;
 
-  /* ── Clamp index ── */
+  // Track current instrument key so we can maintain position when list changes
+  const currentInstKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (activeList.length > 0 && currentIndex >= activeList.length) {
-      setCurrentIndex(Math.max(0, activeList.length - 1));
+    if (currentInstrument) {
+      currentInstKeyRef.current = instrumentKey(currentInstrument);
     }
-  }, [activeList.length, currentIndex]);
+  }, [currentInstrument]);
+
+  /* ── Maintain position when activeList changes (e.g. during background scan) ── */
+  useEffect(() => {
+    if (activeList.length === 0) return;
+
+    // If current index is out of bounds, clamp it
+    if (currentIndex >= activeList.length) {
+      setCurrentIndex(Math.max(0, activeList.length - 1));
+      return;
+    }
+
+    // If the instrument at currentIndex is still the one we expect, no adjustment needed
+    const atIndex = activeList[currentIndex];
+    if (atIndex && instrumentKey(atIndex) === currentInstKeyRef.current) return;
+
+    // The list shifted — find where our instrument moved to
+    if (currentInstKeyRef.current) {
+      const newIdx = activeList.findIndex(
+        (inst) => instrumentKey(inst) === currentInstKeyRef.current,
+      );
+      if (newIdx >= 0 && newIdx !== currentIndex) {
+        setCurrentIndex(newIdx);
+      }
+    }
+  }, [activeList, currentIndex]);
 
   /* ── Fetch crypto tickers ── */
   useEffect(() => {
@@ -323,8 +355,8 @@ export default function ScreenerPage() {
       sortDir: "desc",
       excludeLeveraged: excludeLeveraged ? "true" : "false",
     });
+    // Use minVolume as a server-side pre-filter hint (24h vol as proxy for avg daily vol)
     if (minVolume) params.set("minQuoteVolume", minVolume);
-    if (minChangePct) params.set("minChangePct", minChangePct);
 
     fetch(`/api/market/tickers?${params}`, { signal: controller.signal })
       .then((res) => {
@@ -352,7 +384,6 @@ export default function ScreenerPage() {
     assetFilter,
     quoteAsset,
     minVolume,
-    minChangePct,
     excludeLeveraged,
     sortBy,
   ]);
@@ -392,10 +423,10 @@ export default function ScreenerPage() {
     return () => controller.abort();
   }, [assetFilter, equityInstruments.length]);
 
-  /* ── Clear candle cache + volume filter when timeframe changes ── */
+  /* ── Clear candle cache + filters when timeframe changes ── */
   useEffect(() => {
     candleCacheRef.current.clear();
-    setBelowVolSet(new Set());
+    setFilteredOutSet(new Set());
   }, [interval]);
 
   /* ── Fetch candles + prefetch ── */
@@ -424,8 +455,14 @@ export default function ScreenerPage() {
     [interval],
   );
 
+  // Stable key for current instrument to avoid re-fetching when activeList shifts
+  const currentInstrumentKey = currentInstrument
+    ? `${currentInstrument.assetClass}:${currentInstrument.symbol}`
+    : null;
+
+  // Main candle fetch — only re-runs when the current instrument actually changes
   useEffect(() => {
-    if (!activeList.length || !currentInstrument) {
+    if (!currentInstrument || !currentInstrumentKey) {
       setCurrentCandles([]);
       setCacheStatus("idle");
       return;
@@ -464,6 +501,20 @@ export default function ScreenerPage() {
         }
       });
 
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentInstrumentKey, fetchCandles, interval]);
+
+  // Prefetch nearby instruments — can re-run when activeList or index changes
+  // without aborting the main candle fetch
+  const prefetchAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    if (!activeList.length || !currentInstrument) return;
+
+    prefetchAbortRef.current?.abort();
+    const controller = new AbortController();
+    prefetchAbortRef.current = controller;
+
     for (let i = 1; i <= prefetchDepth; i++) {
       const idx = currentIndex + i;
       if (idx < activeList.length) {
@@ -482,6 +533,8 @@ export default function ScreenerPage() {
         );
       }
     }
+
+    return () => controller.abort();
   }, [
     currentIndex,
     activeList,
@@ -517,42 +570,221 @@ export default function ScreenerPage() {
     return total / recent.length;
   }, [currentCandles, currentInstrument]);
 
+  /* ── Check universal filters after candles load ── */
   useEffect(() => {
-    if (
-      minAvgVolNum <= 0 ||
-      !currentInstrument ||
-      currentCandles.length === 0 ||
-      candlesLoading
-    )
+    if (!currentInstrument || currentCandles.length === 0 || candlesLoading)
       return;
 
     const key = instrumentKey(currentInstrument);
-    const avg = avgDailyVolume;
-    if (avg > 0 && avg < minAvgVolNum) {
-      setBelowVolSet((prev) => {
-        if (prev.has(key)) return prev;
+    let shouldFilter = false;
+
+    // Check min avg daily volume
+    if (minVolNum > 0 && avgDailyVolume > 0 && avgDailyVolume < minVolNum) {
+      shouldFilter = true;
+    }
+
+    // Check % change filter (directional):
+    //   positive threshold (e.g. 10)  → keep only pct >= +10%
+    //   negative threshold (e.g. -10) → keep only pct <= -10%
+    if (minChangePctNum !== 0) {
+      let pct = currentInstrument.priceChangePercent;
+      if (currentInstrument.assetClass === "equity" && currentCandles.length >= 2) {
+        const last = currentCandles[currentCandles.length - 1];
+        const prev = currentCandles[currentCandles.length - 2];
+        pct = ((last.close - prev.close) / prev.close) * 100;
+      }
+      if (minChangePctNum > 0 && pct < minChangePctNum) {
+        shouldFilter = true;
+      } else if (minChangePctNum < 0 && pct > minChangePctNum) {
+        shouldFilter = true;
+      }
+    }
+
+    setFilteredOutSet((prev) => {
+      const has = prev.has(key);
+      if (shouldFilter && !has) {
         const next = new Set(prev);
         next.add(key);
         return next;
-      });
-    } else if (avg >= minAvgVolNum) {
-      setBelowVolSet((prev) => {
-        if (!prev.has(key)) return prev;
+      }
+      if (!shouldFilter && has) {
         const next = new Set(prev);
         next.delete(key);
         return next;
-      });
-    }
-  }, [avgDailyVolume, minAvgVolNum, currentInstrument, currentCandles.length, candlesLoading]);
+      }
+      return prev;
+    });
+  }, [avgDailyVolume, minVolNum, minChangePctNum, currentInstrument, currentCandles, candlesLoading]);
 
-  // Clear belowVolSet when minAvgVol changes (user changed threshold)
-  const prevMinAvgVolNum = useRef(minAvgVolNum);
+  // Clear filteredOutSet when filter values change (user changed threshold)
+  const prevMinVolNum = useRef<number | null>(null);
+  const prevMinChangePctNum = useRef<number | null>(null);
   useEffect(() => {
-    if (prevMinAvgVolNum.current !== minAvgVolNum) {
-      setBelowVolSet(new Set());
-      prevMinAvgVolNum.current = minAvgVolNum;
+    // Skip the very first call (initial mount / session restore)
+    if (prevMinVolNum.current === null) {
+      prevMinVolNum.current = minVolNum;
+      prevMinChangePctNum.current = minChangePctNum;
+      return;
     }
-  }, [minAvgVolNum]);
+    if (prevMinVolNum.current !== minVolNum || prevMinChangePctNum.current !== minChangePctNum) {
+      setFilteredOutSet(new Set());
+      prevMinVolNum.current = minVolNum;
+      prevMinChangePctNum.current = minChangePctNum;
+    }
+  }, [minVolNum, minChangePctNum]);
+
+  /* ── Background filter scan for equities ──
+   * When filters are active and equities are in the list, proactively fetch
+   * candles for all equity instruments in small concurrent batches, evaluate
+   * them against the filters, and add failures to filteredOutSet so they are
+   * removed from the stack before the user ever navigates to them.
+   */
+  const evaluateInstrument = useCallback(
+    (candles: CandleData[], inst: Instrument): boolean => {
+      if (candles.length === 0) return false;
+
+      // Check min avg daily volume (20-day)
+      if (minVolNum > 0) {
+        const recent = candles.slice(-20);
+        const avg = recent.reduce((s, c) => s + c.volume, 0) / recent.length;
+        if (avg > 0 && avg < minVolNum) return true;
+      }
+
+      // Check % change (directional)
+      if (minChangePctNum !== 0 && candles.length >= 2) {
+        const last = candles[candles.length - 1];
+        const prev = candles[candles.length - 2];
+        const pct = ((last.close - prev.close) / prev.close) * 100;
+        if (minChangePctNum > 0 && pct < minChangePctNum) return true;
+        if (minChangePctNum < 0 && pct > minChangePctNum) return true;
+      }
+
+      return false;
+    },
+    [minVolNum, minChangePctNum],
+  );
+
+  useEffect(() => {
+    // Only run background scan when filters are active and equities are present
+    const hasFilters = minVolNum > 0 || minChangePctNum !== 0;
+    const hasEquities =
+      (assetFilter === "equity" || assetFilter === "both") &&
+      equityInstruments.length > 0;
+
+    if (!hasFilters || !hasEquities) {
+      setFilterScanProgress(null);
+      return;
+    }
+
+    // Abort any previous scan
+    filterScanAbortRef.current?.abort();
+    const controller = new AbortController();
+    filterScanAbortRef.current = controller;
+
+    const BATCH_SIZE = 6;
+
+    let cancelled = false;
+
+    (async () => {
+      // Evaluate cached instruments immediately in one batch, collect uncached for fetching
+      const alreadyFiltered = filteredOutRef.current;
+      const toScan: Instrument[] = [];
+      const immediateFilterKeys: string[] = [];
+
+      for (const inst of equityInstruments) {
+        const key = instrumentKey(inst);
+        if (alreadyFiltered.has(key)) continue;
+
+        const cacheKey = `${inst.assetClass}:${inst.symbol}:${interval}`;
+        const cached = candleCacheRef.current.get(cacheKey);
+        if (cached) {
+          if (evaluateInstrument(cached, inst)) {
+            immediateFilterKeys.push(key);
+          }
+        } else {
+          toScan.push(inst);
+        }
+      }
+
+      // Batch-add all immediately-evaluated failures
+      if (immediateFilterKeys.length > 0) {
+        setFilteredOutSet((prev) => {
+          let changed = false;
+          const next = new Set(prev);
+          for (const k of immediateFilterKeys) {
+            if (!next.has(k)) {
+              next.add(k);
+              changed = true;
+            }
+          }
+          return changed ? next : prev;
+        });
+      }
+
+      if (toScan.length === 0 || cancelled) {
+        setFilterScanProgress(null);
+        return;
+      }
+
+      const total = toScan.length;
+      let scanned = 0;
+      setFilterScanProgress({ scanned: 0, total });
+
+      for (let i = 0; i < total; i += BATCH_SIZE) {
+        if (cancelled || controller.signal.aborted) break;
+
+        const batch = toScan.slice(i, i + BATCH_SIZE);
+        const results = await Promise.allSettled(
+          batch.map(async (inst) => {
+            const cacheKey = `${inst.assetClass}:${inst.symbol}:${interval}`;
+            // Double-check cache (may have been fetched by prefetch in the meantime)
+            let candles = candleCacheRef.current.get(cacheKey);
+            if (!candles) {
+              const params = new URLSearchParams({
+                symbol: inst.symbol,
+                interval,
+                assetClass: inst.assetClass,
+              });
+              const res = await fetch(`/api/market/candles?${params}`, {
+                signal: controller.signal,
+              });
+              if (!res.ok) return;
+              candles = (await res.json()) as CandleData[];
+              candleCacheRef.current.set(cacheKey, candles);
+            }
+
+            const key = instrumentKey(inst);
+            const shouldFilter = evaluateInstrument(candles, inst);
+            if (shouldFilter) {
+              setFilteredOutSet((prev) => {
+                if (prev.has(key)) return prev;
+                const next = new Set(prev);
+                next.add(key);
+                return next;
+              });
+            }
+          }),
+        );
+
+        scanned += results.length;
+        if (!cancelled && !controller.signal.aborted) {
+          setFilterScanProgress({ scanned, total });
+        }
+      }
+
+      if (!cancelled && !controller.signal.aborted) {
+        setFilterScanProgress(null);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+      setFilterScanProgress(null);
+    };
+    // Re-run when filters change, equities change, or interval changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [minVolNum, minChangePctNum, assetFilter, equityInstruments, interval, evaluateInstrument]);
 
   /* ── Navigation callbacks ── */
   const goNext = useCallback(() => {
@@ -850,8 +1082,10 @@ export default function ScreenerPage() {
 
   const isCryptoMode = assetFilter === "crypto" || assetFilter === "both";
 
-  // Show filtered count hint when volume filter is active
-  const volFilterActive = minAvgVolNum > 0 && belowVolSet.size > 0;
+  // Show filtered count hint when any universal filter is active
+  const filterActive =
+    (minVolNum > 0 || minChangePctNum !== 0) &&
+    (filteredOutSet.size > 0 || filterScanProgress !== null);
 
   return (
     <div className="flex flex-col h-screen overflow-hidden select-none">
@@ -1151,14 +1385,23 @@ export default function ScreenerPage() {
 
           <div className="w-px h-3.5 bg-[#1a1a1a] mx-0.5 shrink-0" />
 
-          {/* Minimum average daily volume filter (universal) */}
+          {/* Universal filters */}
           <input
             type="number"
-            value={minAvgVolRaw}
-            onChange={(e) => setMinAvgVolRaw(e.target.value)}
-            placeholder="AvgVol≥"
-            className="w-20 bg-[#111] border border-[#1e1e1e] rounded px-1 py-px text-[10px] text-[#999] focus:border-blue-500/50 outline-none tabular-nums placeholder:text-[#444] shrink-0"
-            title="Min average daily volume (20-day). Instruments below this are auto-skipped."
+            value={minVolumeRaw}
+            onChange={(e) => setMinVolumeRaw(e.target.value)}
+            placeholder="Vol≥"
+            className="w-16 bg-[#111] border border-[#1e1e1e] rounded px-1 py-px text-[10px] text-[#999] focus:border-blue-500/50 outline-none tabular-nums placeholder:text-[#444] shrink-0"
+            title="Min avg daily volume (20-day). Filters out instruments below this threshold."
+          />
+
+          <input
+            type="number"
+            value={minChangePctRaw}
+            onChange={(e) => setMinChangePctRaw(e.target.value)}
+            placeholder="Δ%≥"
+            className="w-14 bg-[#111] border border-[#1e1e1e] rounded px-1 py-px text-[10px] text-[#999] focus:border-blue-500/50 outline-none tabular-nums placeholder:text-[#444] shrink-0"
+            title="Min % change. Positive (e.g. 10) = gainers ≥10%. Negative (e.g. -10) = losers ≤-10%."
           />
 
           {/* Sort (universal) */}
@@ -1191,24 +1434,6 @@ export default function ScreenerPage() {
                 <option value="BNB">BNB</option>
                 <option value="FDUSD">FDUSD</option>
               </select>
-
-              <input
-                type="number"
-                value={minVolumeRaw}
-                onChange={(e) => setMinVolumeRaw(e.target.value)}
-                placeholder="Vol≥"
-                className="w-16 bg-[#111] border border-[#1e1e1e] rounded px-1 py-px text-[10px] text-[#999] focus:border-blue-500/50 outline-none tabular-nums placeholder:text-[#444] shrink-0"
-                title="Min 24h volume"
-              />
-
-              <input
-                type="number"
-                value={minChangePctRaw}
-                onChange={(e) => setMinChangePctRaw(e.target.value)}
-                placeholder="Δ%≥"
-                className="w-12 bg-[#111] border border-[#1e1e1e] rounded px-1 py-px text-[10px] text-[#999] focus:border-blue-500/50 outline-none tabular-nums placeholder:text-[#444] shrink-0"
-                title="Min % change"
-              />
 
               <label
                 className="flex items-center gap-0.5 text-[10px] text-[#555] cursor-pointer shrink-0"
@@ -1248,12 +1473,20 @@ export default function ScreenerPage() {
         </div>
       </div>
 
-      {/* ── Volume filter active indicator ── */}
-      {volFilterActive && (
-        <div className="flex items-center justify-center px-3 py-0.5 bg-blue-500/5 border-b border-blue-500/10 shrink-0">
+      {/* ── Filter active indicator ── */}
+      {filterActive && (
+        <div className="flex items-center justify-center gap-2 px-3 py-0.5 bg-blue-500/5 border-b border-blue-500/10 shrink-0">
           <span className="text-[10px] text-blue-400/60">
-            AvgVol filter: {belowVolSet.size} hidden (below {formatVolume(minAvgVolNum)})
+            {filteredOutSet.size} filtered out
+            {minVolNum > 0 && ` · vol<${formatVolume(minVolNum)}`}
+            {minChangePctNum > 0 && ` · Δ%<+${minChangePctNum}%`}
+            {minChangePctNum < 0 && ` · Δ%>${minChangePctNum}%`}
           </span>
+          {filterScanProgress && (
+            <span className="text-[10px] text-amber-400/60 animate-pulse">
+              scanning {filterScanProgress.scanned}/{filterScanProgress.total}…
+            </span>
+          )}
         </div>
       )}
 
