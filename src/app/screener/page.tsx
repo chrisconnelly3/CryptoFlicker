@@ -666,12 +666,13 @@ export default function ScreenerPage() {
       )}
 
       {/* ══════════════════════════════════════════════════
-          UNIFIED TOOLBAR - single row, grouped by purpose
-          [NAV] [TICKER] [LIST] [TF] [FILTERS] [OVERLAYS] [ACTIONS] [TOOLS]
+          UNIFIED TOOLBAR - wraps cleanly at small widths
+          Row 1: [NAV] [TICKER] [ACTIONS] [TOOLS]
+          Row 2 (wraps): [LIST] [TF] [FILTERS] [SMA]
           ══════════════════════════════════════════════════ */}
-      <div className="flex items-center gap-0 px-1 py-1 border-b border-[#1a1a1a] shrink-0 text-[11px]">
+      <div className="flex flex-wrap items-center gap-x-0 gap-y-0.5 px-1 py-1 border-b border-[#1a1a1a] shrink-0 text-[11px]">
 
-        {/* ── GROUP: Navigation ── */}
+        {/* ── GROUP: Navigation (always first, never wraps away) ── */}
         <div className="flex items-center shrink-0">
           <button
             onClick={goPrev}
@@ -698,38 +699,36 @@ export default function ScreenerPage() {
 
         <Sep />
 
-        {/* ── GROUP: Ticker context ── */}
+        {/* ── GROUP: Ticker context (can truncate) ── */}
         {currentTicker ? (
-          <div className="flex items-center gap-2 min-w-0 shrink">
+          <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
             <span
-              className={`text-[12px] font-bold tracking-wide leading-none ${
+              className={`text-[12px] font-bold tracking-wide leading-none whitespace-nowrap ${
                 isSkipped ? "text-[#444] line-through" : "text-white"
               }`}
             >
               {currentTicker.symbol}
             </span>
-            <span className="text-[11px] text-[#999] tabular-nums leading-none">
+            <span className="text-[11px] text-[#999] tabular-nums leading-none whitespace-nowrap">
               {formatPrice(currentTicker.lastPrice)}
             </span>
             <span
-              className={`text-[11px] font-semibold tabular-nums leading-none ${pctColor}`}
+              className={`text-[11px] font-semibold tabular-nums leading-none whitespace-nowrap ${pctColor}`}
             >
               {formatPct(currentTicker.priceChangePercent)}
             </span>
-            <span className="text-[10px] text-[#555] tabular-nums leading-none">
+            <span className="text-[10px] text-[#555] tabular-nums leading-none whitespace-nowrap hidden sm:inline">
               {formatVolume(currentTicker.quoteVolume)}
             </span>
-            {/* Note inline (truncated) */}
             {currentNote && !editingNote && (
               <button
                 onClick={startEditNote}
-                className="text-[10px] text-[#555] hover:text-[#888] truncate max-w-28 leading-none transition-colors"
+                className="text-[10px] text-[#555] hover:text-[#888] truncate max-w-28 leading-none transition-colors whitespace-nowrap hidden md:inline"
                 title={`Note: ${currentNote} (n to edit)`}
               >
                 &ldquo;{currentNote}&rdquo;
               </button>
             )}
-            {/* Cache status dot */}
             <span
               className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusColor}`}
               title={`${cacheStatus}`}
@@ -739,127 +738,8 @@ export default function ScreenerPage() {
           <span className="text-[11px] text-[#444] px-1">No symbol</span>
         )}
 
-        <Sep />
-
-        {/* ── GROUP: List view ── */}
-        <div className="flex rounded overflow-hidden border border-[#1e1e1e] shrink-0">
-          <button
-            onClick={() => setView("all")}
-            className={`px-2 py-px text-[10px] transition-colors ${
-              view === "all"
-                ? "bg-[#1e1e1e] text-[#ccc]"
-                : "text-[#555] hover:text-[#888]"
-            }`}
-          >
-            All
-          </button>
-          <button
-            onClick={() => setView("favorites")}
-            className={`px-2 py-px text-[10px] transition-colors ${
-              view === "favorites"
-                ? "bg-[#1e1e1e] text-yellow-400"
-                : "text-[#555] hover:text-[#888]"
-            }`}
-          >
-            ★{favorites.size}
-          </button>
-        </div>
-
-        {/* ── GROUP: Timeframe ── */}
-        <div className="flex rounded overflow-hidden border border-[#1e1e1e] ml-1.5 shrink-0">
-          {TIMEFRAMES.map((tf) => (
-            <button
-              key={tf.value}
-              onClick={() => setInterval_(tf.value)}
-              className={`px-1.5 py-px text-[10px] transition-colors ${
-                interval === tf.value
-                  ? "bg-[#1e1e1e] text-blue-400"
-                  : "text-[#555] hover:text-[#888]"
-              }`}
-              title={tf.tooltip}
-            >
-              {tf.label}
-            </button>
-          ))}
-        </div>
-
-        <Sep />
-
-        {/* ── GROUP: Filters ── */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          <select
-            value={quoteAsset}
-            onChange={(e) => setQuoteAsset(e.target.value)}
-            className="bg-[#111] border border-[#1e1e1e] rounded px-1 py-px text-[10px] text-[#999] focus:border-blue-500/50 outline-none"
-            title="Quote asset"
-          >
-            <option value="USDT">USDT</option>
-            <option value="BTC">BTC</option>
-            <option value="ETH">ETH</option>
-            <option value="BNB">BNB</option>
-            <option value="FDUSD">FDUSD</option>
-          </select>
-
-          <input
-            type="number"
-            value={minVolumeRaw}
-            onChange={(e) => setMinVolumeRaw(e.target.value)}
-            placeholder="Vol≥"
-            className="w-16 bg-[#111] border border-[#1e1e1e] rounded px-1 py-px text-[10px] text-[#999] focus:border-blue-500/50 outline-none tabular-nums placeholder:text-[#444]"
-            title="Min 24h volume"
-          />
-
-          <input
-            type="number"
-            value={minChangePctRaw}
-            onChange={(e) => setMinChangePctRaw(e.target.value)}
-            placeholder="Δ%≥"
-            className="w-12 bg-[#111] border border-[#1e1e1e] rounded px-1 py-px text-[10px] text-[#999] focus:border-blue-500/50 outline-none tabular-nums placeholder:text-[#444]"
-            title="Min % change"
-          />
-
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as SortField)}
-            className="bg-[#111] border border-[#1e1e1e] rounded px-1 py-px text-[10px] text-[#999] focus:border-blue-500/50 outline-none"
-            title="Sort by"
-          >
-            <option value="quoteVolume">Vol</option>
-            <option value="priceChangePercent">%Chg</option>
-            <option value="lastPrice">Price</option>
-            <option value="count">Trades</option>
-          </select>
-
-          <label
-            className="flex items-center gap-0.5 text-[10px] text-[#555] cursor-pointer"
-            title="Exclude leveraged tokens"
-          >
-            <input
-              type="checkbox"
-              checked={excludeLeveraged}
-              onChange={(e) => setExcludeLeveraged(e.target.checked)}
-              className="accent-blue-500 w-3 h-3"
-            />
-            Lev
-          </label>
-        </div>
-
-        <Sep />
-
-        {/* ── GROUP: Overlays ── */}
-        <button
-          onClick={handleToggleSMA}
-          className={`px-1.5 py-px text-[10px] rounded border transition-colors shrink-0 ${
-            showSMA
-              ? "bg-[#1e1e1e] border-purple-500/40 text-purple-400"
-              : "border-[#1e1e1e] text-[#555] hover:text-[#888]"
-          }`}
-          title="Toggle SMA overlays (m)"
-        >
-          SMA
-        </button>
-
-        <Sep />
+        {/* ── Spacer pushes actions/tools to the right ── */}
+        <div className="flex-1 min-w-2" />
 
         {/* ── GROUP: Actions ── */}
         <div className="flex items-center gap-0.5 shrink-0">
@@ -896,8 +776,6 @@ export default function ScreenerPage() {
           >
             /
           </button>
-
-          {/* Settings */}
           <div className="relative" ref={settingsRef}>
             <button
               onClick={() => setShowSettings((v) => !v)}
@@ -940,8 +818,6 @@ export default function ScreenerPage() {
               </div>
             )}
           </div>
-
-          {/* Favorites menu */}
           <div className="relative" ref={favMenuRef}>
             <button
               onClick={() => setShowFavMenu((v) => !v)}
@@ -974,6 +850,126 @@ export default function ScreenerPage() {
               </div>
             )}
           </div>
+        </div>
+
+        {/* ── ROW 2: These groups wrap below on small screens ── */}
+        {/* Basis-full forces a line break before this group on wrap */}
+        <div className="flex items-center gap-1.5 flex-wrap w-full mt-0.5 pt-0.5 border-t border-[#111]">
+          {/* List view toggle */}
+          <div className="flex rounded overflow-hidden border border-[#1e1e1e] shrink-0">
+            <button
+              onClick={() => setView("all")}
+              className={`px-2 py-px text-[10px] transition-colors ${
+                view === "all"
+                  ? "bg-[#1e1e1e] text-[#ccc]"
+                  : "text-[#555] hover:text-[#888]"
+              }`}
+            >
+              All
+            </button>
+            <button
+              onClick={() => setView("favorites")}
+              className={`px-2 py-px text-[10px] transition-colors ${
+                view === "favorites"
+                  ? "bg-[#1e1e1e] text-yellow-400"
+                  : "text-[#555] hover:text-[#888]"
+              }`}
+            >
+              ★{favorites.size}
+            </button>
+          </div>
+
+          {/* Timeframe toggle */}
+          <div className="flex rounded overflow-hidden border border-[#1e1e1e] shrink-0">
+            {TIMEFRAMES.map((tf) => (
+              <button
+                key={tf.value}
+                onClick={() => setInterval_(tf.value)}
+                className={`px-1.5 py-px text-[10px] transition-colors ${
+                  interval === tf.value
+                    ? "bg-[#1e1e1e] text-blue-400"
+                    : "text-[#555] hover:text-[#888]"
+                }`}
+                title={tf.tooltip}
+              >
+                {tf.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="w-px h-3.5 bg-[#1a1a1a] mx-0.5 shrink-0" />
+
+          {/* Filters */}
+          <select
+            value={quoteAsset}
+            onChange={(e) => setQuoteAsset(e.target.value)}
+            className="bg-[#111] border border-[#1e1e1e] rounded px-1 py-px text-[10px] text-[#999] focus:border-blue-500/50 outline-none shrink-0"
+            title="Quote asset"
+          >
+            <option value="USDT">USDT</option>
+            <option value="BTC">BTC</option>
+            <option value="ETH">ETH</option>
+            <option value="BNB">BNB</option>
+            <option value="FDUSD">FDUSD</option>
+          </select>
+
+          <input
+            type="number"
+            value={minVolumeRaw}
+            onChange={(e) => setMinVolumeRaw(e.target.value)}
+            placeholder="Vol≥"
+            className="w-16 bg-[#111] border border-[#1e1e1e] rounded px-1 py-px text-[10px] text-[#999] focus:border-blue-500/50 outline-none tabular-nums placeholder:text-[#444] shrink-0"
+            title="Min 24h volume"
+          />
+
+          <input
+            type="number"
+            value={minChangePctRaw}
+            onChange={(e) => setMinChangePctRaw(e.target.value)}
+            placeholder="Δ%≥"
+            className="w-12 bg-[#111] border border-[#1e1e1e] rounded px-1 py-px text-[10px] text-[#999] focus:border-blue-500/50 outline-none tabular-nums placeholder:text-[#444] shrink-0"
+            title="Min % change"
+          />
+
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as SortField)}
+            className="bg-[#111] border border-[#1e1e1e] rounded px-1 py-px text-[10px] text-[#999] focus:border-blue-500/50 outline-none shrink-0"
+            title="Sort by"
+          >
+            <option value="quoteVolume">Vol</option>
+            <option value="priceChangePercent">%Chg</option>
+            <option value="lastPrice">Price</option>
+            <option value="count">Trades</option>
+          </select>
+
+          <label
+            className="flex items-center gap-0.5 text-[10px] text-[#555] cursor-pointer shrink-0"
+            title="Exclude leveraged tokens"
+          >
+            <input
+              type="checkbox"
+              checked={excludeLeveraged}
+              onChange={(e) => setExcludeLeveraged(e.target.checked)}
+              className="accent-blue-500 w-3 h-3"
+            />
+            Lev
+          </label>
+
+          <div className="w-px h-3.5 bg-[#1a1a1a] mx-0.5 shrink-0" />
+
+          {/* SMA overlay toggle */}
+          <button
+            onClick={handleToggleSMA}
+            className={`px-1.5 py-px text-[10px] rounded border transition-colors shrink-0 ${
+              showSMA
+                ? "bg-[#1e1e1e] border-purple-500/40 text-purple-400"
+                : "border-[#1e1e1e] text-[#555] hover:text-[#888]"
+            }`}
+            title="Toggle SMA overlays (m)"
+          >
+            SMA
+          </button>
         </div>
       </div>
 
