@@ -394,6 +394,27 @@ export default function ScreenerPage() {
     setCurrentIndex((i) => Math.max(i - 1, 0));
   }, []);
 
+  /* ── Swipe gesture handling for mobile ── */
+  const touchRef = useRef<{ x: number; y: number; t: number } | null>(null);
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    touchRef.current = { x: touch.clientX, y: touch.clientY, t: Date.now() };
+  }, []);
+  const handleTouchEnd = useCallback(
+    (e: React.TouchEvent) => {
+      if (!touchRef.current) return;
+      const touch = e.changedTouches[0];
+      const dx = touch.clientX - touchRef.current.x;
+      const dy = touch.clientY - touchRef.current.y;
+      const dt = Date.now() - touchRef.current.t;
+      touchRef.current = null;
+      if (dt > 500 || Math.abs(dx) < 50 || Math.abs(dy) > Math.abs(dx)) return;
+      if (dx < 0) goNext();
+      else goPrev();
+    },
+    [goNext, goPrev],
+  );
+
   const handleStar = useCallback(() => {
     if (currentTicker) toggleFav(currentTicker.symbol);
   }, [currentTicker, toggleFav]);
@@ -677,7 +698,7 @@ export default function ScreenerPage() {
           <button
             onClick={goPrev}
             disabled={currentIndex === 0}
-            className="px-1.5 py-0.5 text-[11px] text-[#555] hover:text-white disabled:opacity-20 transition-colors"
+            className="px-2 py-1.5 md:px-1.5 md:py-0.5 text-[14px] md:text-[11px] text-[#555] hover:text-white disabled:opacity-20 transition-colors"
             title="Previous (← or h)"
           >
             ◀
@@ -690,7 +711,7 @@ export default function ScreenerPage() {
           <button
             onClick={goNext}
             disabled={currentIndex >= activeList.length - 1}
-            className="px-1.5 py-0.5 text-[11px] text-[#555] hover:text-white disabled:opacity-20 transition-colors"
+            className="px-2 py-1.5 md:px-1.5 md:py-0.5 text-[14px] md:text-[11px] text-[#555] hover:text-white disabled:opacity-20 transition-colors"
             title="Next (→ or l)"
           >
             ▶
@@ -745,7 +766,7 @@ export default function ScreenerPage() {
         <div className="flex items-center gap-0.5 shrink-0">
           <button
             onClick={handleStar}
-            className={`text-sm leading-none px-1 transition-colors ${
+            className={`text-lg md:text-sm leading-none px-2 py-1.5 md:px-1 md:py-0 transition-colors ${
               starred ? "text-yellow-400" : "text-[#333] hover:text-[#555]"
             }`}
             title="Star (s)"
@@ -991,7 +1012,11 @@ export default function ScreenerPage() {
       )}
 
       {/* ── Chart area ── */}
-      <div className="flex-1 min-h-0 relative">
+      <div
+        className="flex-1 min-h-0 relative pb-16 md:pb-0"
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
         {activeList.length === 0 ? (
           <div className="absolute inset-0 flex items-center justify-center">
             <span className="text-sm text-[#444]">
@@ -1019,8 +1044,68 @@ export default function ScreenerPage() {
         )}
       </div>
 
-      {/* ── Footer: keyboard hints ── */}
-      <div className="flex items-center justify-center gap-4 px-3 py-1 border-t border-[#1a1a1a] shrink-0 text-[10px] text-[#444] flex-wrap">
+      {/* ── Mobile: floating thumb-zone navigation ── */}
+      {activeList.length > 0 && (
+        <div className="md:hidden fixed bottom-0 left-0 right-0 z-30 pointer-events-none pb-[env(safe-area-inset-bottom)]">
+          <div className="flex items-end justify-between px-2 pb-3">
+            {/* Prev - bottom left, natural left-thumb zone */}
+            <button
+              onClick={goPrev}
+              disabled={currentIndex === 0}
+              className="pointer-events-auto w-14 h-14 rounded-full bg-[#141414]/90 border border-[#222] flex items-center justify-center text-xl text-[#888] active:bg-[#222] active:text-white disabled:opacity-20 transition-colors backdrop-blur-sm"
+              aria-label="Previous"
+            >
+              ◀
+            </button>
+
+            {/* Center actions: star + skip */}
+            <div className="pointer-events-auto flex items-center gap-2 mb-1">
+              <button
+                onClick={handleSkip}
+                className={`w-10 h-10 rounded-full border flex items-center justify-center text-sm transition-colors backdrop-blur-sm ${
+                  isSkipped
+                    ? "bg-[#222]/90 border-[#444] text-[#888]"
+                    : "bg-[#141414]/90 border-[#222] text-[#555] active:bg-[#222] active:text-white"
+                }`}
+                aria-label="Skip"
+              >
+                ✕
+              </button>
+              <button
+                onClick={handleStar}
+                className={`w-12 h-12 rounded-full border flex items-center justify-center text-xl transition-colors backdrop-blur-sm ${
+                  starred
+                    ? "bg-yellow-400/20 border-yellow-400/40 text-yellow-400"
+                    : "bg-[#141414]/90 border-[#222] text-[#555] active:bg-[#222] active:text-yellow-400"
+                }`}
+                aria-label="Star"
+              >
+                {starred ? "★" : "☆"}
+              </button>
+              <button
+                onClick={openSearch}
+                className="w-10 h-10 rounded-full bg-[#141414]/90 border border-[#222] flex items-center justify-center text-sm text-[#555] active:bg-[#222] active:text-white transition-colors backdrop-blur-sm"
+                aria-label="Search"
+              >
+                /
+              </button>
+            </div>
+
+            {/* Next - bottom right, natural right-thumb zone */}
+            <button
+              onClick={goNext}
+              disabled={currentIndex >= activeList.length - 1}
+              className="pointer-events-auto w-14 h-14 rounded-full bg-[#141414]/90 border border-[#222] flex items-center justify-center text-xl text-[#888] active:bg-[#222] active:text-white disabled:opacity-20 transition-colors backdrop-blur-sm"
+              aria-label="Next"
+            >
+              ▶
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Footer: keyboard hints (desktop only) ── */}
+      <div className="hidden md:flex items-center justify-center gap-4 px-3 py-1 border-t border-[#1a1a1a] shrink-0 text-[10px] text-[#444] flex-wrap">
         <span>
           <Kbd>←</Kbd> <Kbd>→</Kbd> nav
         </span>
