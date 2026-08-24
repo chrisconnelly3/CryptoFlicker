@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 470" width="960" height="470" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#525252"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="960" height="470" rx="10" fill="#0a0a0a"/>
+  <rect x="0.5" y="0.5" width="959" height="469" rx="10" fill="none" stroke="#262626"/>
+
+  <text x="24" y="34" fill="#d4d4d4" font-size="15" font-weight="700">CryptoFlicker &#183; data flow</text>
+  <text x="24" y="52" fill="#737373" font-size="11">No API keys. No database. Public endpoints proxied server-side, cached in memory, prefetched client-side.</text>
+
+  <!-- Column 1: client -->
+  <rect x="24" y="72" width="280" height="268" rx="8" fill="#111111" stroke="#262626"/>
+  <rect x="24" y="72" width="280" height="30" rx="8" fill="#161616"/>
+  <rect x="24" y="94" width="280" height="8" fill="#161616"/>
+  <text x="40" y="92" fill="#22c55e" font-size="12" font-weight="700">BROWSER</text>
+  <text x="40" y="128" fill="#d4d4d4" font-size="12" font-weight="600">Single chart instance</text>
+  <text x="40" y="145" fill="#737373" font-size="11">lightweight-charts, canvas</text>
+  <text x="40" y="162" fill="#737373" font-size="11">setData() swap, never remount</text>
+  <line x1="40" y1="180" x2="288" y2="180" stroke="#262626"/>
+  <text x="40" y="202" fill="#d4d4d4" font-size="12" font-weight="600">Prefetch window +5 / -2</text>
+  <text x="40" y="219" fill="#737373" font-size="11">candles ahead and behind are</text>
+  <text x="40" y="236" fill="#737373" font-size="11">fetched before you press the key</text>
+  <line x1="40" y1="254" x2="288" y2="254" stroke="#262626"/>
+  <text x="40" y="276" fill="#d4d4d4" font-size="12" font-weight="600">Local state only</text>
+  <text x="40" y="293" fill="#737373" font-size="11">sessionStorage &#8594; filters, index</text>
+  <text x="40" y="310" fill="#737373" font-size="11">localStorage &#8594; stars, notes</text>
+
+  <!-- Column 2: server -->
+  <rect x="340" y="72" width="280" height="268" rx="8" fill="#111111" stroke="#262626"/>
+  <rect x="340" y="72" width="280" height="30" rx="8" fill="#161616"/>
+  <rect x="340" y="94" width="280" height="8" fill="#161616"/>
+  <text x="356" y="92" fill="#3b82f6" font-size="12" font-weight="700">NEXT.JS ROUTE HANDLERS</text>
+
+  <text x="356" y="128" fill="#d4d4d4" font-size="11.5">/api/market/tickers</text>
+  <rect x="356" y="138" width="66" height="17" rx="4" fill="#14281c" stroke="#1f4030"/>
+  <text x="364" y="150" fill="#22c55e" font-size="10">TTL 30s</text>
+  <text x="430" y="150" fill="#737373" font-size="10.5">24h crypto stats</text>
+
+  <text x="356" y="184" fill="#d4d4d4" font-size="11.5">/api/market/candles</text>
+  <rect x="356" y="194" width="66" height="17" rx="4" fill="#14281c" stroke="#1f4030"/>
+  <text x="364" y="206" fill="#22c55e" font-size="10">TTL 10m</text>
+  <rect x="428" y="194" width="60" height="17" rx="4" fill="#14281c" stroke="#1f4030"/>
+  <text x="436" y="206" fill="#22c55e" font-size="10">TTL 6h</text>
+  <text x="496" y="206" fill="#737373" font-size="10.5">crypto / equity</text>
+
+  <text x="356" y="240" fill="#d4d4d4" font-size="11.5">/api/market/equities/universe</text>
+  <rect x="356" y="250" width="66" height="17" rx="4" fill="#14281c" stroke="#1f4030"/>
+  <text x="364" y="262" fill="#22c55e" font-size="10">TTL 12h</text>
+  <text x="430" y="262" fill="#737373" font-size="10.5">12k+ US symbols</text>
+
+  <line x1="356" y1="284" x2="604" y2="284" stroke="#262626"/>
+  <text x="356" y="306" fill="#737373" font-size="11">In-process Map cache. Solves CORS,</text>
+  <text x="356" y="323" fill="#737373" font-size="11">rate limits and geo-blocking (451).</text>
+
+  <!-- Column 3: sources -->
+  <rect x="656" y="72" width="280" height="268" rx="8" fill="#111111" stroke="#262626"/>
+  <rect x="656" y="72" width="280" height="30" rx="8" fill="#161616"/>
+  <rect x="656" y="94" width="280" height="8" fill="#161616"/>
+  <text x="672" y="92" fill="#a78bfa" font-size="12" font-weight="700">PUBLIC SOURCES &#183; NO KEYS</text>
+
+  <text x="672" y="128" fill="#d4d4d4" font-size="12" font-weight="600">Binance Spot REST</text>
+  <text x="672" y="145" fill="#737373" font-size="11">api.binance.us &#8594; .com fallback</text>
+  <text x="672" y="162" fill="#737373" font-size="11">klines + 24h ticker</text>
+  <line x1="672" y1="180" x2="920" y2="180" stroke="#262626"/>
+  <text x="672" y="202" fill="#d4d4d4" font-size="12" font-weight="600">Yahoo Finance chart</text>
+  <text x="672" y="219" fill="#737373" font-size="11">equity OHLCV, 1y / 5y range</text>
+  <text x="672" y="236" fill="#737373" font-size="11">BRK.B &#8594; BRK-B symbol mapping</text>
+  <line x1="672" y1="254" x2="920" y2="254" stroke="#262626"/>
+  <text x="672" y="276" fill="#d4d4d4" font-size="12" font-weight="600">NASDAQ Trader dir</text>
+  <text x="672" y="293" fill="#737373" font-size="11">nasdaqlisted + otherlisted</text>
+  <text x="672" y="310" fill="#737373" font-size="11">pipe-delimited, parsed on demand</text>
+
+  <!-- arrows -->
+  <line x1="306" y1="200" x2="336" y2="200" stroke="#525252" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="622" y1="200" x2="652" y2="200" stroke="#525252" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- bottom band -->
+  <rect x="24" y="366" width="912" height="80" rx="8" fill="#111111" stroke="#262626"/>
+  <text x="44" y="392" fill="#737373" font-size="11" font-weight="700">THE LOOP</text>
+
+  <text x="44" y="424" fill="#d4d4d4" font-size="12">press</text>
+  <rect x="86" y="410" width="22" height="19" rx="4" fill="#1a1a1a" stroke="#333333"/>
+  <text x="93" y="424" fill="#d4d4d4" font-size="12">&#8594;</text>
+  <text x="120" y="424" fill="#525252" font-size="12">&#8594;</text>
+  <text x="142" y="424" fill="#d4d4d4" font-size="12">cache hit (prefetched)</text>
+  <text x="300" y="424" fill="#525252" font-size="12">&#8594;</text>
+  <text x="322" y="424" fill="#d4d4d4" font-size="12">series.setData()</text>
+  <text x="440" y="424" fill="#525252" font-size="12">&#8594;</text>
+  <text x="462" y="424" fill="#22c55e" font-size="12" font-weight="700">next chart on screen</text>
+  <text x="626" y="424" fill="#737373" font-size="11">&#183; judge it &#183; star, note, or skip &#183; repeat</text>
+</svg>
